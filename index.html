@@ -539,7 +539,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script>
 const firebaseConfig = {
-  apiKey: "AIzaSyBF•••••••••••••••••••••••••••••••",
+  apiKey: "AIzaSyBFOH2nc1hdvjtYDQYErj8CF0TJpx2b78s",
   authDomain: "tesoreria-kings.firebaseapp.com",
   databaseURL: "https://tesoreria-kings-default-rtdb.firebaseio.com",
   projectId: "tesoreria-kings",
@@ -1109,7 +1109,7 @@ function exportCsv(){
   const csvContent = [headers, ...entryRows, ingresoTotal, ...gastoRows, gastoTotal]
     .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
     .join('\r\n');
-  const blob = new Blob(['\ufeff' + csvContent], {type:'text/csv;charset=utf-8;'});
+  const blob = new Blob(['﻿' + csvContent], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1142,7 +1142,7 @@ function parseCsvLine(line){
 }
 
 async function importCsv(text){
-  const lines = text.replace(/^\ufeff/, '').split(/\r\n|\n/).filter(l => l.trim() !== '');
+  const lines = text.replace(/^﻿/, '').split(/\r\n|\n/).filter(l => l.trim() !== '');
   if(lines.length < 2){ toast('No hay datos para importar.'); return; }
   let countIngresos = 0, countGastos = 0, countBanco = 0;
   let touchedWeeks = new Set();
