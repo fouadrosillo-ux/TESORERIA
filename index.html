@@ -371,7 +371,7 @@
       </div>
       <div class="note">*Cuenta Central es informativa y no entra en la cuadratura (ver pestaña Resumen).</div>
       <div class="btn-row">
-        <button class="btn secondary" id="btn-export">⬇ Exportar semana (CSV / Excel)</button>
+        <button class="btn secondary" id="btn-export">⬇ Exportar semana (Excel)</button>
       </div>
       <div class="note">Ya no es necesario compartir este archivo — el Resumen se actualiza solo. Úsalo como respaldo si quieres.</div>
     </div>
@@ -417,7 +417,7 @@
         <div class="sum-box"><div class="lbl">Por liquidar</div><div class="val" id="sum-gastos-liquidar">$0</div></div>
       </div>
       <div class="btn-row">
-        <button class="btn secondary" id="btn-export-gastos">⬇ Exportar solicitudes (CSV / Excel)</button>
+        <button class="btn secondary" id="btn-export-gastos">⬇ Exportar solicitudes (Excel)</button>
       </div>
       <div class="note">Ya no es necesario compartir este archivo — el Resumen se actualiza solo. Úsalo como respaldo si quieres.</div>
     </div>
@@ -537,6 +537,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyBFOH2nc1hdvjtYDQYErj8CF0TJpx2b78s",
@@ -1090,35 +1091,146 @@ function goToWeek(w){
   document.querySelector('.tab-btn[data-tab="resumen"]').click();
 }
 
-function exportCsv(){
+async function exportExcel(){
   const entries = weekData.entries || [];
   const gastos = weekData.gastos || [];
   if(entries.length === 0 && gastos.length === 0){ toast('No hay datos que exportar.'); return; }
-  const headers = ['Seccion','Semana','Nombre / Solicitante','Tipo / Motivo','Metodo','Cuenta','Estado / Destino','Solicitado','Rendido','Diferencia','Fecha'];
-  const entryRows = entries.map(e => [
-    'Ingreso', currentWeek, e.nombre, e.tipo, e.metodo, e.cuenta || (e.metodo==='Efectivo' ? 'Caja chica' : ''), e.destino || 'General', e.monto, '', '',
-    new Date(e.ts).toLocaleString('es-CL')
-  ]);
-  const ingresoTotal = ['Ingreso','','','','','','TOTAL INGRESOS', entries.reduce((a,e)=>a+Number(e.monto),0), '', '', ''];
-  const gastoRows = gastos.map(g => [
-    'Solicitud', currentWeek, g.solicitante, g.motivo, g.metodo, '', g.estado, g.montoSolicitado,
-    g.montoRendido != null ? g.montoRendido : '', g.montoRendido != null ? (g.montoSolicitado - g.montoRendido) : '',
-    new Date(g.ts).toLocaleString('es-CL')
-  ]);
-  const gastoTotal = ['Solicitud','','','','','','TOTAL SOLICITADO', gastos.reduce((a,g)=>a+Number(g.montoSolicitado),0), '', '', ''];
-  const csvContent = [headers, ...entryRows, ingresoTotal, ...gastoRows, gastoTotal]
-    .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
-    .join('\r\n');
-  const blob = new Blob(['﻿' + csvContent], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `tesoreria_${currentWeek}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast('Archivo descargado');
+
+  const HEADER_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF151918' } };
+  const HEADER_FONT = { bold:true, color:{ argb:'FFEDEAE2' } };
+  const SAGE_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE5F0E8' } };
+  const BRASS_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF4EADD' } };
+  const BRICK_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFBE9E4' } };
+  const CURRENCY_FMT = '"$"#,##0';
+
+  try{
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Tesorería Kings Viña del Mar';
+    wb.created = new Date();
+
+    const wsR = wb.addWorksheet('Resumen');
+    wsR.columns = [
+      { key:'label', width:34 },
+      { key:'value', width:18 },
+    ];
+    const actuals = computeActuals(weekData);
+    const addSectionR = (title) => {
+      const row = wsR.addRow([title]);
+      wsR.mergeCells(`A${row.number}:B${row.number}`);
+      row.getCell(1).fill = HEADER_FILL;
+      row.getCell(1).font = HEADER_FONT;
+    };
+    const addFieldR = (label, value, isCurrency) => {
+      const row = wsR.addRow([label, value]);
+      if(isCurrency) row.getCell(2).numFmt = CURRENCY_FMT;
+      return row;
+    };
+    wsR.addRow(['Semana del', currentWeek]);
+    wsR.addRow(['Estado', weekData.closed ? 'Cerrada' : 'Abierta']);
+    addSectionR('CAJA CHICA');
+    addFieldR('Saldo anterior', Number(weekData.cajaChica.anterior)||0, true);
+    addFieldR('Efectivo recibido (arqueo ofrenda)', actuals.efectivoContado, true);
+    addFieldR('Gastos pagados en efectivo', actuals.gastosEfectivo, true);
+    addFieldR('Depósito al banco esta semana', Number(weekData.banco.deposito)||0, true);
+    addFieldR('Retiro del banco a caja chica', Number(weekData.banco.retiro)||0, true);
+    addFieldR('Saldo actual en caja chica', actuals.cajaChicaActual, true).font = { bold:true };
+    addSectionR('ARQUEO DE OFRENDA (efectivo contado, pestaña Registro)');
+    DENOMS.forEach(d => {
+      const cant = (weekData.arqueo||{})[d] || 0;
+      if(cant) addFieldR(`$${d.toLocaleString('es-CL')} x ${cant}`, cant * d, true);
+    });
+    addSectionR('ARQUEO DE CAJA CHICA (efectivo guardado, pestaña Resumen)');
+    DENOMS.forEach(d => {
+      const cant = ((weekData.cajaChica.arqueo)||{})[d] || 0;
+      if(cant) addFieldR(`$${d.toLocaleString('es-CL')} x ${cant}`, cant * d, true);
+    });
+    addSectionR('BANCO');
+    addFieldR('Saldo anterior', Number(weekData.banco.anterior)||0, true);
+    addFieldR('Depósito esta semana', actuals.deposito, true);
+    addFieldR('Retiro esta semana', actuals.retiro, true);
+    addFieldR('Gastos por transferencia/cheque', actuals.gastosBanco, true);
+    addFieldR('Saldo actual en banco', actuals.bancoActual, true).font = { bold:true };
+    addSectionR('CUENTA CENTRAL (informativo)');
+    addFieldR('Ingresos esta semana', actuals.ingresosCentral, true);
+    addSectionR('TOTAL DISPONIBLE');
+    addFieldR('Caja chica + Banco', actuals.cajaChicaActual + actuals.bancoActual, true).font = { bold:true };
+    wsR.getColumn(1).font = { name:'Calibri' };
+
+    const wsI = wb.addWorksheet('Ingresos');
+    wsI.columns = [
+      { header:'Nombre / Familia', key:'nombre', width:28 },
+      { header:'Tipo', key:'tipo', width:12 },
+      { header:'Método', key:'metodo', width:15 },
+      { header:'Cuenta', key:'cuenta', width:14 },
+      { header:'Destino', key:'destino', width:14 },
+      { header:'Monto', key:'monto', width:14 },
+      { header:'Fecha', key:'fecha', width:20 },
+    ];
+    wsI.getRow(1).eachCell(c => { c.fill = HEADER_FILL; c.font = HEADER_FONT; });
+    entries.forEach(e => {
+      const row = wsI.addRow({
+        nombre: e.nombre, tipo: e.tipo, metodo: e.metodo,
+        cuenta: e.cuenta || (e.metodo==='Efectivo' ? 'Caja chica' : ''),
+        destino: e.destino || 'General', monto: Number(e.monto), fecha: new Date(e.ts)
+      });
+      row.getCell('monto').numFmt = CURRENCY_FMT;
+      row.getCell('fecha').numFmt = 'dd/mm/yyyy hh:mm';
+      row.getCell('tipo').fill = e.tipo === 'Diezmo' ? SAGE_FILL : BRASS_FILL;
+    });
+    const totalI = wsI.addRow({ nombre:'TOTAL INGRESOS', monto: entries.reduce((a,e)=>a+Number(e.monto),0) });
+    totalI.font = { bold:true };
+    totalI.getCell('monto').numFmt = CURRENCY_FMT;
+    if(entries.length){
+      wsI.autoFilter = { from:'A1', to:`G${entries.length+1}` };
+    }
+    wsI.views = [{ state:'frozen', ySplit:1 }];
+
+    const wsG = wb.addWorksheet('Solicitudes');
+    wsG.columns = [
+      { header:'Solicitante', key:'solicitante', width:20 },
+      { header:'Motivo', key:'motivo', width:28 },
+      { header:'Método', key:'metodo', width:15 },
+      { header:'Estado', key:'estado', width:20 },
+      { header:'Solicitado', key:'solicitado', width:14 },
+      { header:'Rendido', key:'rendido', width:14 },
+      { header:'Diferencia', key:'diferencia', width:14 },
+      { header:'Fecha', key:'fecha', width:20 },
+    ];
+    wsG.getRow(1).eachCell(c => { c.fill = HEADER_FILL; c.font = HEADER_FONT; });
+    gastos.forEach(g => {
+      const row = wsG.addRow({
+        solicitante: g.solicitante, motivo: g.motivo, metodo: g.metodo, estado: g.estado,
+        solicitado: Number(g.montoSolicitado),
+        rendido: g.montoRendido != null ? Number(g.montoRendido) : null,
+        diferencia: g.montoRendido != null ? Number(g.montoSolicitado - g.montoRendido) : null,
+        fecha: new Date(g.ts)
+      });
+      ['solicitado','rendido','diferencia'].forEach(k => row.getCell(k).numFmt = CURRENCY_FMT);
+      row.getCell('fecha').numFmt = 'dd/mm/yyyy hh:mm';
+      row.getCell('estado').fill = g.estado === 'Cerrado' ? SAGE_FILL : (g.estado === 'Pendiente de rendir' ? BRICK_FILL : BRASS_FILL);
+    });
+    const totalG = wsG.addRow({ solicitante:'TOTAL SOLICITADO', solicitado: gastos.reduce((a,g)=>a+Number(g.montoSolicitado),0) });
+    totalG.font = { bold:true };
+    totalG.getCell('solicitado').numFmt = CURRENCY_FMT;
+    if(gastos.length){
+      wsG.autoFilter = { from:'A1', to:`H${gastos.length+1}` };
+    }
+    wsG.views = [{ state:'frozen', ySplit:1 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tesoreria_${currentWeek}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('Archivo Excel descargado');
+  }catch(e){
+    toast('⚠ No se pudo generar el Excel: ' + (e && e.message || e));
+  }
 }
 
 function parseCsvLine(line){
@@ -1210,8 +1322,8 @@ document.getElementById('btn-import-text').addEventListener('click', () => {
   document.getElementById('import-box').style.display = 'none';
 });
 
-document.getElementById('btn-export').addEventListener('click', exportCsv);
-document.getElementById('btn-export-gastos').addEventListener('click', exportCsv);
+document.getElementById('btn-export').addEventListener('click', exportExcel);
+document.getElementById('btn-export-gastos').addEventListener('click', exportExcel);
 document.getElementById('btn-add').addEventListener('click', addEntry);
 document.getElementById('weekDate').addEventListener('change', e => {
   currentWeek = e.target.value;
