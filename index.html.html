@@ -370,10 +370,6 @@
         <div class="sum-box total"><div class="lbl">Total general</div><div class="val" id="sum-total">$0</div></div>
       </div>
       <div class="note">*Cuenta Central es informativa y no entra en la cuadratura (ver pestaña Resumen).</div>
-      <div class="btn-row">
-        <button class="btn secondary" id="btn-export">⬇ Exportar semana (Excel)</button>
-      </div>
-      <div class="note">Ya no es necesario compartir este archivo — el Resumen se actualiza solo. Úsalo como respaldo si quieres.</div>
     </div>
   </div>
 
@@ -416,10 +412,6 @@
         <div class="sum-box"><div class="lbl">Pendiente de rendir</div><div class="val" id="sum-gastos-pendiente">$0</div></div>
         <div class="sum-box"><div class="lbl">Por liquidar</div><div class="val" id="sum-gastos-liquidar">$0</div></div>
       </div>
-      <div class="btn-row">
-        <button class="btn secondary" id="btn-export-gastos">⬇ Exportar solicitudes (Excel)</button>
-      </div>
-      <div class="note">Ya no es necesario compartir este archivo — el Resumen se actualiza solo. Úsalo como respaldo si quieres.</div>
     </div>
   </div>
 
@@ -473,6 +465,10 @@
     <div class="card" id="week-selector-card" style="display:none;">
       <h2><span class="eyebrow">SEMANA</span> Semana a revisar</h2>
       <div class="field"><select id="resumen-week-select"></select></div>
+      <div class="btn-row">
+        <button class="btn secondary" id="btn-export-resumen">⬇ Exportar esta semana (Excel)</button>
+      </div>
+      <div class="note">Exporta Ingresos, Solicitudes y Resumen de la semana seleccionada arriba, todo en un solo Excel.</div>
     </div>
     <div class="card">
       <h2><span class="eyebrow">CAJA CHICA</span> Efectivo guardado (antes de depositar)</h2>
@@ -1096,9 +1092,9 @@ function goToWeek(w){
   document.querySelector('.tab-btn[data-tab="resumen"]').click();
 }
 
-async function exportExcel(){
-  const entries = weekData.entries || [];
-  const gastos = weekData.gastos || [];
+async function exportExcel(data, weekLabel){
+  const entries = data.entries || [];
+  const gastos = data.gastos || [];
   if(entries.length === 0 && gastos.length === 0){ toast('No hay datos que exportar.'); return; }
 
   const HEADER_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF151918' } };
@@ -1118,7 +1114,7 @@ async function exportExcel(){
       { key:'label', width:34 },
       { key:'value', width:18 },
     ];
-    const actuals = computeActuals(weekData);
+    const actuals = computeActuals(data);
     const addSectionR = (title) => {
       const row = wsR.addRow([title]);
       wsR.mergeCells(`A${row.number}:B${row.number}`);
@@ -1130,27 +1126,27 @@ async function exportExcel(){
       if(isCurrency) row.getCell(2).numFmt = CURRENCY_FMT;
       return row;
     };
-    wsR.addRow(['Semana del', currentWeek]);
-    wsR.addRow(['Estado', weekData.closed ? 'Cerrada' : 'Abierta']);
+    wsR.addRow(['Semana del', weekLabel]);
+    wsR.addRow(['Estado', data.closed ? 'Cerrada' : 'Abierta']);
     addSectionR('CAJA CHICA');
-    addFieldR('Saldo anterior', Number(weekData.cajaChica.anterior)||0, true);
+    addFieldR('Saldo anterior', Number(data.cajaChica.anterior)||0, true);
     addFieldR('Efectivo recibido (arqueo ofrenda)', actuals.efectivoContado, true);
     addFieldR('Gastos pagados en efectivo', actuals.gastosEfectivo, true);
-    addFieldR('Depósito al banco esta semana', Number(weekData.banco.deposito)||0, true);
-    addFieldR('Retiro del banco a caja chica', Number(weekData.banco.retiro)||0, true);
+    addFieldR('Depósito al banco esta semana', Number(data.banco.deposito)||0, true);
+    addFieldR('Retiro del banco a caja chica', Number(data.banco.retiro)||0, true);
     addFieldR('Saldo actual en caja chica', actuals.cajaChicaActual, true).font = { bold:true };
     addSectionR('ARQUEO DE OFRENDA (efectivo contado, pestaña Registro)');
     DENOMS.forEach(d => {
-      const cant = (weekData.arqueo||{})[d] || 0;
+      const cant = (data.arqueo||{})[d] || 0;
       if(cant) addFieldR(`$${d.toLocaleString('es-CL')} x ${cant}`, cant * d, true);
     });
     addSectionR('ARQUEO DE CAJA CHICA (efectivo guardado, pestaña Resumen)');
     DENOMS.forEach(d => {
-      const cant = ((weekData.cajaChica.arqueo)||{})[d] || 0;
+      const cant = ((data.cajaChica.arqueo)||{})[d] || 0;
       if(cant) addFieldR(`$${d.toLocaleString('es-CL')} x ${cant}`, cant * d, true);
     });
     addSectionR('BANCO');
-    addFieldR('Saldo anterior', Number(weekData.banco.anterior)||0, true);
+    addFieldR('Saldo anterior', Number(data.banco.anterior)||0, true);
     addFieldR('Depósito esta semana', actuals.deposito, true);
     addFieldR('Retiro esta semana', actuals.retiro, true);
     addFieldR('Gastos por transferencia/cheque', actuals.gastosBanco, true);
@@ -1226,7 +1222,7 @@ async function exportExcel(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tesoreria_${currentWeek}.xlsx`;
+    a.download = `tesoreria_${weekLabel}.xlsx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1446,8 +1442,10 @@ document.getElementById('btn-import-text').addEventListener('click', () => {
   document.getElementById('import-box').style.display = 'none';
 });
 
-document.getElementById('btn-export').addEventListener('click', exportExcel);
-document.getElementById('btn-export-gastos').addEventListener('click', exportExcel);
+document.getElementById('btn-export-resumen').addEventListener('click', () => {
+  if(!selectedResumenWeek || !allWeeks[selectedResumenWeek]){ toast('Selecciona una semana primero.'); return; }
+  exportExcel(allWeeks[selectedResumenWeek], selectedResumenWeek);
+});
 document.getElementById('btn-add').addEventListener('click', addEntry);
 document.getElementById('weekDate').addEventListener('change', e => {
   currentWeek = e.target.value;
